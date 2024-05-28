@@ -344,6 +344,79 @@ If only a single candidate passes the test, the invocation of the candidate is s
 - the candidate is either not generic, or its type arguments are explicitly specified;
 - there is no ambiguity between normal and expanded forms of the candidate that cannot be resolved at compile time. 
 
+In this case, result of the invocation matches result of a regular invocation of the single candidate,
+except in a situation when all the following conditions are met. The result is the returned value converted to `dynamic` then.
+- the candidate is not a local function;
+- the candidate returns a value (doesn't have type `void`, doesn't return a `ref`);
+- there is an implicit conversion from result type to `dynamic`;
+- the receiver and argument list would be supported for dynamically bound invocation.
+
+For example:
+```csharp
+unsafe public class C
+{
+    public static void Main()
+    {
+        dynamic d = 1;
+        var a = Test1(d); // error CS0815: Cannot assign void to an implicitly-typed variable
+        var b = Test2(d); // void*, there is no implicit conversion to dynamic
+        var c = Test3(d); // dynamic
+        c.InvokeOnDynamic(); // No error
+
+        var e = test4(d); // int
+        static int test4(int x) => x;
+
+        var f = Test5(d); // int
+
+        var g = Test6(name: "name", d); // int : named before regular argument
+
+        string name = "name";
+        var h = Test7(&name, d); // int : pointer argument
+    }
+    
+    static void Test1(int x) {}
+    static void* Test2(int x) => null;
+    static int Test3(int x) => x;
+    static ref int Test5(int x) => ...;
+    static int Test6(string name, object value) => ...;
+    static int Test7(string* name, object value) => ...;
+}
+```
+
+Note, that the term "invocation" in "invocation of the candidate is statically bound" is used in a somewhat loose terms.
+- For a method or delegate invocations, this means an invocation of the method or the delegate.
+- For an indexer used as a value, this means an invocation of its getter.
+- For an indexer as a target of an assignment, this means the whole assignment operation, which includes 
+an invocation of the setter, conversion of the assigned value, and, if this is a compound assignment,
+invocation of the getter and the compound operation. What is being converted to `dynamic` is the result
+produced by the whole assignment operation. Result of any mentioned constituent operations is not converted to
+`dynamic`, unless they themselves involve `dynamic` input beyond indexer's arguments.
+
+To illustrate:
+```csharp
+public class C1
+{
+    public void M(dynamic d, object o)
+    {
+        // conversion is static
+        this[d] = o; // error CS0266: Cannot implicitly convert type 'object' to 'System.IO.Stream'. An explicit conversion exists (are you missing a cast?)
+    }
+
+    System.IO.Stream this[int x] {...}
+}
+
+public class C2
+{
+    public void M(dynamic d, object o)
+    {
+        // the addition is static
+        this[d] += o; // error CS0019: Operator '+=' cannot be applied to operands of type 'object' and 'object'
+    }
+
+    object this[int x] {...}
+}
+```
+
 Otherwise, the *invocation_expression* is dynamically bound.
 - If only a single candidate passed the test above:
     - if that candidate is a local function, a compile-time error occurs;
